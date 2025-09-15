@@ -25,7 +25,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           push: true
-          tags: ghcr.io/${{ github.repository }}/juice-shop:${{ github.sha }}
+          tags: ghcr.io/${{ github.repository }}/juice-shop-bogazici:${{ github.sha }}
 
       - name: Install Syft
         run: |
