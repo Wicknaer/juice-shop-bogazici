@@ -2,7 +2,7 @@ name: Security Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
 
 jobs:
   docker-build-and-sbom:
