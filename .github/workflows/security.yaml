@@ -1,52 +1,57 @@
-name: Security Pipeline (Docker + SBOM + Semgrep)
+name: Security Pipeline (Docker + SBOM + Semgrep + Gitleaks)
 
 permissions:
-  contents: read           # repo checkout
+  contents: read
   packages: write          # GHCR'ye push
-  security-events: write   # Code Scanning (SARIF) yüklemek için
+  security-events: write   # SARIF upload (Code Scanning)
 
 on:
   push:
     branches: [ master ]
 
 env:
-  IMAGE: ghcr.io/wicknaer/juice-shop-bogazici   # tamamı lowercase olmalı
+  IMAGE: ghcr.io/wicknaer/juice-shop-bogazici   # TAMAMI lowercase!
 
 jobs:
   build-and-sbom:
+    name: Docker Build & SBOM
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & Push Docker image
+      - name: Build & Push Image
         uses: docker/build-push-action@v6
         with:
           push: true
-          tags: ${{ env.IMAGE }}:${{ github.sha }}
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
 
-      - name: Install Syft (for SBOM)
+      - name: Install Syft
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
             | sh -s -- -b /usr/local/bin
           syft version
 
-      - name: Generate SBOM from image
+      - name: Generate SBOM (SPDX & CycloneDX) from image
         run: |
           syft ${{ env.IMAGE }}:${{ github.sha }} -o spdx-json --file=sbom.spdx.json
           syft ${{ env.IMAGE }}:${{ github.sha }} -o cyclonedx-json --file=sbom.cdx.json
 
-      - name: Upload SBOMs
+      - name: Upload SBOM artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sbom-files
@@ -56,21 +61,48 @@ jobs:
           if-no-files-found: error
 
   semgrep:
+    name: Semgrep SAST
     runs-on: ubuntu-latest
-    needs: build-and-sbom         # önce build+sbom bitsin
+    needs: build-and-sbom   # ister paralel de koşabilir; ihtiyaç yoksa kaldırabilirsin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Semgrep SAST
+      - name: Run Semgrep
         uses: returntocorp/semgrep-action@v1
         with:
-          # Hazır kurallar: hızlı ve anlamlı sonuçlar
+          # hızlı & anlamlı kurallar
           config: >
             p/ci
             p/security-audit
           generateSarif: true
-          uploadSarif: true        # GitHub Code Scanning'e yükler
-          # Eğer Semgrep Cloud kullanıyorsan aşağıdakileri aç:
-          # publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
-          # publishDeployment: true
+          uploadSarif: true
+        continue-on-error: true   # bulgular pipeline'ı düşürmesin; istersen kaldır
+
+  gitleaks:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+    # build'e bağlı değil; kaynak kodu tarar. İstersen needs: build-and-sbom ekleyebilirsin.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Docker üzerinden resmi gitleaks imajı ile tarama ve SARIF üretimi
+      - name: Run Gitleaks (SARIF)
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/repo \
+            -w /repo \
+            gitleaks/gitleaks:latest detect \
+              --redact \
+              --report-format sarif \
+              --report-path gitleaks.sarif
+
+      - name: Upload Gitleaks SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks.sarif
