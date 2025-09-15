@@ -27,10 +27,12 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_PAT }}  # PAT burada kullanılacak
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           push: true
-          tags: ${{ env.IMAGE }}:${{ github.sha }}
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
