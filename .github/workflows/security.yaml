@@ -1,24 +1,33 @@
-name: Docker Build
+name: Docker Build & SBOM
 
 on:
   push:
-    branches: [ master ]
-
-env:
-  IMAGE: ghcr.io/wicknaer/juice-shop-bogazici
+    branches:
+      - master
+  pull_request:
 
 jobs:
-  docker-build:
+  build-and-syft:
+    name: Build & SBOM
     runs-on: ubuntu-latest
     steps:
+      # Repoyu çek
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Docker Buildx kurulumu
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Docker image'i build et (push yok)
       - name: Build Docker image
         uses: docker/build-push-action@v6
         with:
           push: false
-          tags: ${{ env.IMAGE }}:latest
+          tags: juice-shop:latest
+
+      # Syft ile SBOM oluştur
+      - name: Syft SBOM Scan
+        uses: anchore/sbom-action@v0
+        with:
+          image: "juice-shop:latest"
