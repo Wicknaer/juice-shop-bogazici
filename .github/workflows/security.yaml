@@ -31,3 +31,10 @@ jobs:
         uses: anchore/sbom-action@v0
         with:
           image: "juice-shop:latest"
+          
+      # Semgrep ile kod taraması
+      - name: Semgrep Scan
+        uses: returntocorp/semgrep-action@v2
+        with:
+          # default kurallar kullanılacak, istersen custom rules eklenebilir
+          config: "p/ci"
