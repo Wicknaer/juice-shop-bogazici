@@ -1,18 +1,19 @@
-name: Security Pipeline
+name: Security Pipeline (Docker + SBOM + Semgrep)
 
 permissions:
-  contents: read
-  packages: write   # GHCR push için gerekli
+  contents: read           # repo checkout
+  packages: write          # GHCR'ye push
+  security-events: write   # Code Scanning (SARIF) yüklemek için
 
 on:
   push:
     branches: [ master ]
 
 env:
-  IMAGE: ghcr.io/wicknaer/juice-shop-bogazici  # lowercase repo adı
+  IMAGE: ghcr.io/wicknaer/juice-shop-bogazici   # tamamı lowercase olmalı
 
 jobs:
-  docker-build:
+  build-and-sbom:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -28,26 +29,48 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build & Push Docker image
         uses: docker/build-push-action@v6
         with:
           push: true
           tags: ${{ env.IMAGE }}:${{ github.sha }}
 
+      - name: Install Syft (for SBOM)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin
+          syft version
+
+      - name: Generate SBOM from image
+        run: |
+          syft ${{ env.IMAGE }}:${{ github.sha }} -o spdx-json --file=sbom.spdx.json
+          syft ${{ env.IMAGE }}:${{ github.sha }} -o cyclonedx-json --file=sbom.cdx.json
+
+      - name: Upload SBOMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-files
+          path: |
+            sbom.spdx.json
+            sbom.cdx.json
+          if-no-files-found: error
+
   semgrep:
     runs-on: ubuntu-latest
-    needs: docker-build   # önce image build edilsin
+    needs: build-and-sbom         # önce build+sbom bitsin
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run Semgrep scan
+      - name: Semgrep SAST
         uses: returntocorp/semgrep-action@v1
         with:
-          config: >-
+          # Hazır kurallar: hızlı ve anlamlı sonuçlar
+          config: >
             p/ci
             p/security-audit
           generateSarif: true
-          publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}  # eğer Semgrep Cloud kullanacaksan
-          publishDeployment: true
-          uploadSarif: true
+          uploadSarif: true        # GitHub Code Scanning'e yükler
+          # Eğer Semgrep Cloud kullanıyorsan aşağıdakileri aç:
+          # publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
+          # publishDeployment: true
