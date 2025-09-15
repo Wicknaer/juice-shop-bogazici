@@ -1,40 +1,37 @@
-name: Docker Build & SBOM
+name: CI - Build, SBOM & Semgrep
 
 on:
   push:
     branches:
       - master
   pull_request:
+    branches:
+      - master
 
 jobs:
-  build-and-syft:
-    name: Build & SBOM
+  build-sbom-semgrep:
+    name: Build, SBOM & Semgrep
     runs-on: ubuntu-latest
+
     steps:
-      # Repoyu çek
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      # Docker Buildx kurulumu
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      # Docker Build
+      - name: Build Docker Image
+        run: |
+          docker build -t juice-shop-bogazici .
 
-      # Docker image'i build et (push yok)
-      - name: Build Docker image
-        uses: docker/build-push-action@v6
+      # Syft SBOM generation
+      - name: Generate SBOM with Syft
+        uses: anchore/syft-action@v0.15.0
         with:
-          push: false
-          tags: juice-shop:latest
+          image: juice-shop-bogazici
+          format: json
 
-      # Syft ile SBOM oluştur
-      - name: Syft SBOM Scan
-        uses: anchore/sbom-action@v0
+      # Semgrep Scan
+      - name: Run Semgrep Scan
+        uses: returntocorp/semgrep-action@v1
         with:
-          image: "juice-shop:latest"
-          
-      # Semgrep ile kod taraması
-      - name: Semgrep Scan
-        uses: returntocorp/semgrep-action@v2
-        with:
-          # default kurallar kullanılacak, istersen custom rules eklenebilir
-          config: "p/ci"
+          config: "p/ci" # popüler CI kuralları, istersen değiştirilebilir
+          severity-threshold: WARNING
